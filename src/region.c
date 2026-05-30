@@ -7,6 +7,11 @@ typedef struct {
     POINT current;
 } RegionState;
 
+typedef struct {
+    RECT sel;
+    BOOL valid;
+} RegionData;
+
 LRESULT CALLBACK RegionProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     static RegionState rs = {0};
@@ -51,8 +56,9 @@ LRESULT CALLBACK RegionProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 if ((sel.right - sel.left) >= 5 &&
                     (sel.bottom - sel.top) >= 5)
                 {
-                    *((RECT*)GetWindowLongPtrW(hwnd, GWLP_USERDATA)) = sel;
-                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, (LONG_PTR)1); // 标记有效
+                    RegionData *data = (RegionData*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+                    data->sel = sel;
+                    data->valid = TRUE;
                 }
                 DestroyWindow(hwnd);
             }
@@ -124,8 +130,7 @@ BOOL RunRegionSelection(HINSTANCE hInst, RECT *outRect)
     int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-    RECT sel = {0};
-    LONG_PTR valid = 0;
+    RegionData data = {{0}, FALSE};
 
     HWND hRgn = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
@@ -135,7 +140,7 @@ BOOL RunRegionSelection(HINSTANCE hInst, RECT *outRect)
         NULL, NULL, hInst, NULL);
     if (!hRgn) return FALSE;
 
-    SetWindowLongPtrW(hRgn, GWLP_USERDATA, (LONG_PTR)&sel);
+    SetWindowLongPtrW(hRgn, GWLP_USERDATA, (LONG_PTR)&data);
 
     MSG msg;
     while (IsWindow(hRgn) && GetMessageW(&msg, NULL, 0, 0)) {
@@ -143,9 +148,8 @@ BOOL RunRegionSelection(HINSTANCE hInst, RECT *outRect)
         DispatchMessageW(&msg);
     }
 
-    valid = GetWindowLongPtrW(hRgn, GWLP_USERDATA);
-    if (valid == 1 && sel.right > sel.left && sel.bottom > sel.top) {
-        *outRect = sel;
+    if (data.valid) {
+        *outRect = data.sel;
         return TRUE;
     }
     return FALSE;

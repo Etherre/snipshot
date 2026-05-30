@@ -3,14 +3,26 @@
 #include <windowsx.h>
 
 // 缩放位图（从原始位图按新尺寸生成缩放后的位图）
-static HBITMAP ScaleBitmap(HBITMAP orig, int origW, int origH, int newW, int newH, void **out_bits)
+static HBITMAP ScaleBitmap(HBITMAP orig, int origW, int origH, int newW, int newH)
 {
-    HBITMAP scaled = CreateARGBDIB(newW, newH, out_bits);
+    void *bits;
+    HBITMAP scaled = CreateARGBDIB(newW, newH, &bits);
     if (!scaled) return NULL;
 
     HDC screen = GetDC(NULL);
     HDC memSrc = CreateCompatibleDC(screen);
+    if (!memSrc) {
+        DeleteObject(scaled);
+        ReleaseDC(NULL, screen);
+        return NULL;
+    }
     HDC memDst = CreateCompatibleDC(screen);
+    if (!memDst) {
+        DeleteDC(memSrc);
+        DeleteObject(scaled);
+        ReleaseDC(NULL, screen);
+        return NULL;
+    }
 
     HBITMAP oldSrc = SelectObject(memSrc, orig);
     HBITMAP oldDst = SelectObject(memDst, scaled);
@@ -28,12 +40,25 @@ static HBITMAP ScaleBitmap(HBITMAP orig, int origW, int origH, int newW, int new
     return scaled;
 }
 
+// 在位图边缘绘制 1px 边框
+static void DrawBorder(HBITMAP bmp, int w, int h)
+{
+    HDC screen = GetDC(NULL);
+    HDC mem = CreateCompatibleDC(screen);
+    HBITMAP old = SelectObject(mem, bmp);
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(100, 100, 100));
+    SelectObject(mem, pen);
+    SelectObject(mem, GetStockObject(NULL_BRUSH));
+    Rectangle(mem, 0, 0, w, h);
+    DeleteObject(pen);
+    SelectObject(mem, old);
+    DeleteDC(mem);
+    ReleaseDC(NULL, screen);
+}
+
 // 分层窗口更新
 static void UploadLayeredBitmap(HWND hwnd, HBITMAP bmp, BYTE alpha)
 {
-    BITMAP bm;
-    GetObject(bmp, sizeof(bm), &bm);
-
     HDC screen = GetDC(NULL);
     HDC mem = CreateCompatibleDC(screen);
     HBITMAP old = SelectObject(mem, bmp);
@@ -73,6 +98,10 @@ LRESULT CALLBACK ImageProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             if (!img) return 0;
 
+            DWORD now = GetTickCount();
+            if (now - img->last_wheel_time < 16) return 0;
+            img->last_wheel_time = now;
+
             int delta = GET_WHEEL_DELTA_WPARAM(wParam);
             BOOL ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
@@ -106,7 +135,7 @@ LRESULT CALLBACK ImageProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 int newY = cy - newH / 2;
 
                 HBITMAP scaledBmp = ScaleBitmap(img->orig_bmp, img->orig_width, img->orig_height,
-                                                 newW, newH, NULL);
+                                                 newW, newH);
                 if (!scaledBmp) return 0;
 
                 if (img->bmp && img->bmp != img->orig_bmp)
@@ -117,10 +146,24 @@ LRESULT CALLBACK ImageProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 img->height = newH;
                 img->scale = newScale;
 
+                DrawBorder(img->bmp, newW, newH);
+
                 SetWindowPos(hwnd, NULL, newX, newY, newW, newH,
                              SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
                 UploadLayeredBitmap(hwnd, img->bmp, (BYTE)img->alpha);
             }
+            return 0;
+        }
+
+        case WM_DPICHANGED:
+        {
+            RECT *suggested = (RECT*)lParam;
+            SetWindowPos(hwnd, NULL,
+                         suggested->left, suggested->top,
+                         suggested->right - suggested->left,
+                         suggested->bottom - suggested->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+            if (img) UploadLayeredBitmap(hwnd, img->bmp, (BYTE)img->alpha);
             return 0;
         }
 
@@ -150,20 +193,21 @@ BOOL RegisterImageClass(HINSTANCE hInst)
     return RegisterClassW(&wc);
 }
 
-HWND CreateImageWindow(HINSTANCE hInst, int x, int y, int w, int h, HBITMAP origBmp, void *origBits)
+HWND CreateImageWindow(HINSTANCE hInst, int x, int y, int w, int h, HBITMAP origBmp)
 {
     IMAGE_WINDOW *img = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(IMAGE_WINDOW));
     if (!img) return NULL;
 
     img->alpha = 255;
     img->orig_bmp = origBmp;
-    img->orig_bits = origBits;
     img->orig_width = w;
     img->orig_height = h;
     img->scale = 1.0f;
     img->bmp = img->orig_bmp;
     img->width = w;
     img->height = h;
+
+    DrawBorder(img->bmp, w, h);
 
     HWND hOverlay = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,

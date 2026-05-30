@@ -1,0 +1,14 @@
+# Build output
+Snipshot.exe
+obj/
+
+# LSP / clangd
+.cache/
+compile_commands.json
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

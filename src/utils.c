@@ -3,7 +3,7 @@
 
 void EnableDpi(void)
 {
-    SetProcessDPIAware();
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 }
 
 BOOL IsAutoRunEnabled(void)
@@ -68,9 +68,10 @@ HBITMAP CreateARGBDIB(int w, int h, void **bits)
     return bmp;
 }
 
-HBITMAP CaptureScreenRect(int x, int y, int w, int h, void **bits)
+HBITMAP CaptureScreenRect(int x, int y, int w, int h)
 {
-    HBITMAP bmp = CreateARGBDIB(w, h, bits);
+    void *bits;
+    HBITMAP bmp = CreateARGBDIB(w, h, &bits);
     if (!bmp) return NULL;
 
     HDC screen = GetDC(NULL);
@@ -81,4 +82,17 @@ HBITMAP CaptureScreenRect(int x, int y, int w, int h, void **bits)
     DeleteDC(mem);
     ReleaseDC(NULL, screen);
     return bmp;
+}
+
+void CopyBitmapToClipboard(HBITMAP bmp)
+{
+    if (!OpenClipboard(NULL)) return;
+
+    EmptyClipboard();
+
+    HBITMAP hCopy = (HBITMAP)CopyImage(bmp, IMAGE_BITMAP, 0, 0, 0);
+    if (hCopy)
+        SetClipboardData(CF_BITMAP, hCopy);
+
+    CloseClipboard();
 }

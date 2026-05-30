@@ -9,18 +9,28 @@
 
 /* 消息与 ID */
 #define WMAPP_NOTIFYCALLBACK  (WM_APP + 1)
-#define IDM_CAPTURE_REGION    1001
+#define IDM_CAPTURE_PIN       1001
+#define IDM_CAPTURE_PIN_COPY  1004
+#define IDM_CAPTURE_COPY      1005
 #define IDM_AUTORUN           1002
 #define IDM_EXIT              1003
-#define IDHOT_CAPTURE         2001
+#define IDHOT_PIN             2001
+#define IDHOT_PIN_COPY        2002
+#define IDHOT_COPY            2003
 #define IDI_APPICON           101
+
+typedef enum {
+    MODE_PIN,        // 截图并贴图
+    MODE_PIN_COPY,   // 截图贴图并复制
+    MODE_COPY,       // 截图复制（不贴图）
+} CaptureMode;
 
 /* 全局变量 */
 HINSTANCE g_hInst;
 HWND g_hwndMain;
 NOTIFYICONDATAW g_nid = {0};
 
-static void DoCapture(void)
+static void DoCapture(CaptureMode mode)
 {
     RECT sel;
     if (!RunRegionSelection(g_hInst, &sel))
@@ -34,11 +44,36 @@ static void DoCapture(void)
     int w = sel.right - sel.left;
     int h = sel.bottom - sel.top;
 
-    void *origBits;
-    HBITMAP origBmp = CaptureScreenRect(x, y, w, h, &origBits);
+    HBITMAP origBmp = CaptureScreenRect(x, y, w, h);
     if (!origBmp) return;
 
-    CreateImageWindow(g_hInst, x, y, w, h, origBmp, origBits);
+    if (mode == MODE_PIN_COPY || mode == MODE_COPY)
+        CopyBitmapToClipboard(origBmp);
+
+    if (mode == MODE_PIN || mode == MODE_PIN_COPY)
+        CreateImageWindow(g_hInst, x, y, w, h, origBmp);
+    else
+        DeleteObject(origBmp);
+}
+
+static void ShowTrayMenu(HWND hwnd)
+{
+    HMENU menu = CreatePopupMenu();
+    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN,      L"截图贴图\tCtrl+Shift+S");
+    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN_COPY, L"截图贴图并复制\tCtrl+Shift+A");
+    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_COPY,     L"截图复制\tCtrl+Shift+D");
+
+    UINT check = IsAutoRunEnabled() ? MF_CHECKED : MF_UNCHECKED;
+    AppendMenuW(menu, MF_STRING | check, IDM_AUTORUN, L"开机自启");
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(menu, MF_STRING, IDM_EXIT, L"退出");
+
+    POINT pt;
+    GetCursorPos(&pt);
+    SetForegroundWindow(hwnd);
+    TrackPopupMenu(menu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+    DestroyMenu(menu);
 }
 
 LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -46,33 +81,23 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     switch (msg)
     {
         case WM_HOTKEY:
-            DoCapture();
+            switch (LOWORD(wParam)) {
+                case IDHOT_PIN:      DoCapture(MODE_PIN);      break;
+                case IDHOT_PIN_COPY: DoCapture(MODE_PIN_COPY); break;
+                case IDHOT_COPY:     DoCapture(MODE_COPY);     break;
+            }
             return 0;
 
         case WMAPP_NOTIFYCALLBACK:
-            if (lParam == WM_RBUTTONUP) {
-                HMENU menu = CreatePopupMenu();
-                AppendMenuW(menu, MF_STRING, IDM_CAPTURE_REGION, L"选区截图并贴图\tCtrl+Shift+S");
-
-                UINT check = IsAutoRunEnabled() ? MF_CHECKED : MF_UNCHECKED;
-                AppendMenuW(menu, MF_STRING | check, IDM_AUTORUN, L"开机自启");
-
-                AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
-                AppendMenuW(menu, MF_STRING, IDM_EXIT, L"退出");
-
-                POINT pt;
-                GetCursorPos(&pt);
-                SetForegroundWindow(hwnd);
-                TrackPopupMenu(menu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
-                DestroyMenu(menu);
-            }
+            if (lParam == WM_RBUTTONUP)
+                ShowTrayMenu(hwnd);
             return 0;
 
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
-                case IDM_CAPTURE_REGION:
-                    DoCapture();
-                    break;
+                case IDM_CAPTURE_PIN:      DoCapture(MODE_PIN);      break;
+                case IDM_CAPTURE_PIN_COPY: DoCapture(MODE_PIN_COPY); break;
+                case IDM_CAPTURE_COPY:     DoCapture(MODE_COPY);     break;
                 case IDM_AUTORUN:
                     SetAutoRun(!IsAutoRunEnabled());
                     break;
@@ -104,7 +129,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     RefreshAutoRunPath();
     g_hInst = hInst;
 
-    // 注册窗口类
     RegisterRegionClass(hInst);
     RegisterImageClass(hInst);
 
@@ -128,7 +152,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     lstrcpyW(g_nid.szTip, L"Snipshot");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 
-    RegisterHotKey(g_hwndMain, IDHOT_CAPTURE, MOD_CONTROL | MOD_SHIFT, 'S');
+    RegisterHotKey(g_hwndMain, IDHOT_PIN,      MOD_CONTROL | MOD_SHIFT, 'S');
+    RegisterHotKey(g_hwndMain, IDHOT_PIN_COPY, MOD_CONTROL | MOD_SHIFT, 'A');
+    RegisterHotKey(g_hwndMain, IDHOT_COPY,     MOD_CONTROL | MOD_SHIFT, 'D');
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
@@ -136,7 +162,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
         DispatchMessageW(&msg);
     }
 
-    UnregisterHotKey(g_hwndMain, IDHOT_CAPTURE);
+    UnregisterHotKey(g_hwndMain, IDHOT_PIN);
+    UnregisterHotKey(g_hwndMain, IDHOT_PIN_COPY);
+    UnregisterHotKey(g_hwndMain, IDHOT_COPY);
     if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
     return 0;
 }

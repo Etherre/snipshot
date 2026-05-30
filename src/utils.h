@@ -13,4 +13,7 @@ void RefreshAutoRunPath(void);
 HBITMAP CreateARGBDIB(int w, int h, void **bits);
 
 // 屏幕矩形截图
-HBITMAP CaptureScreenRect(int x, int y, int w, int h, void **bits);
+HBITMAP CaptureScreenRect(int x, int y, int w, int h);
+
+// 将位图复制到剪贴板（CF_BITMAP 格式）
+void CopyBitmapToClipboard(HBITMAP bmp);
