@@ -6,6 +6,8 @@
 #include "utils.h"
 #include "region.h"
 #include "image_window.h"
+#include "drawing.h"
+#include "about.h"
 
 /* 消息与 ID */
 #define WMAPP_NOTIFYCALLBACK  (WM_APP + 1)
@@ -17,7 +19,10 @@
 #define IDHOT_PIN             2001
 #define IDHOT_PIN_COPY        2002
 #define IDHOT_COPY            2003
+#define IDHOT_DRAWING         2004
 #define IDI_APPICON           101
+#define IDM_DRAWING           1006
+#define IDM_ABOUT             1007
 
 typedef enum {
     MODE_PIN,        // 截图并贴图
@@ -62,9 +67,12 @@ static void ShowTrayMenu(HWND hwnd)
     AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN,      L"截图贴图\tCtrl+Shift+S");
     AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN_COPY, L"截图贴图并复制\tCtrl+Shift+A");
     AppendMenuW(menu, MF_STRING, IDM_CAPTURE_COPY,     L"截图复制\tCtrl+Shift+D");
+    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(menu, MF_STRING, IDM_DRAWING,         L"屏幕画板\tCtrl+Shift+B");
 
     UINT check = IsAutoRunEnabled() ? MF_CHECKED : MF_UNCHECKED;
     AppendMenuW(menu, MF_STRING | check, IDM_AUTORUN, L"开机自启");
+    AppendMenuW(menu, MF_STRING, IDM_ABOUT,           L"关于");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(menu, MF_STRING, IDM_EXIT, L"退出");
@@ -85,6 +93,7 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case IDHOT_PIN:      DoCapture(MODE_PIN);      break;
                 case IDHOT_PIN_COPY: DoCapture(MODE_PIN_COPY); break;
                 case IDHOT_COPY:     DoCapture(MODE_COPY);     break;
+                case IDHOT_DRAWING:  RunDrawingMode(g_hInst); break;
             }
             return 0;
 
@@ -98,6 +107,8 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case IDM_CAPTURE_PIN:      DoCapture(MODE_PIN);      break;
                 case IDM_CAPTURE_PIN_COPY: DoCapture(MODE_PIN_COPY); break;
                 case IDM_CAPTURE_COPY:     DoCapture(MODE_COPY);     break;
+                case IDM_DRAWING:          RunDrawingMode(g_hInst); break;
+                case IDM_ABOUT:            ShowAboutDialog(g_hInst); break;
                 case IDM_AUTORUN:
                     SetAutoRun(!IsAutoRunEnabled());
                     break;
@@ -131,6 +142,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
 
     RegisterRegionClass(hInst);
     RegisterImageClass(hInst);
+    RegisterDrawingClass(hInst);
+    RegisterAboutClass(hInst);
 
     WNDCLASSW wc = {0};
     wc.hInstance = hInst;
@@ -155,6 +168,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     RegisterHotKey(g_hwndMain, IDHOT_PIN,      MOD_CONTROL | MOD_SHIFT, 'S');
     RegisterHotKey(g_hwndMain, IDHOT_PIN_COPY, MOD_CONTROL | MOD_SHIFT, 'A');
     RegisterHotKey(g_hwndMain, IDHOT_COPY,     MOD_CONTROL | MOD_SHIFT, 'D');
+    RegisterHotKey(g_hwndMain, IDHOT_DRAWING,  MOD_CONTROL | MOD_SHIFT, 'B');
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
@@ -165,6 +179,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     UnregisterHotKey(g_hwndMain, IDHOT_PIN);
     UnregisterHotKey(g_hwndMain, IDHOT_PIN_COPY);
     UnregisterHotKey(g_hwndMain, IDHOT_COPY);
+    UnregisterHotKey(g_hwndMain, IDHOT_DRAWING);
     if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
     return 0;
 }

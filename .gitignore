@@ -6,6 +6,9 @@ obj/
 .cache/
 compile_commands.json
 
+# other
+.claude/
+
 # Editor
 .vscode/
 .idea/
