@@ -7,7 +7,7 @@
 #define BTN_W    80
 #define BTN_H    28
 
-static const wchar_t *kTitle     = L"Snipshot v1.0.0";
+static const wchar_t *kTitle     = L"Snipshot v1.1.0";
 static const wchar_t *kScreenshot = L"Screenshot:";
 static const wchar_t *kDrawBoard  = L"Drawing Board:";
 static const wchar_t *kAuthor    = L"Author: Eetherrr";
