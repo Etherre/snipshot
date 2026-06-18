@@ -8,6 +8,8 @@
 #include "image_window.h"
 #include "drawing.h"
 #include "about.h"
+#include "hotkey.h"
+#include "settings.h"
 
 /* 消息与 ID */
 #define WMAPP_NOTIFYCALLBACK  (WM_APP + 1)
@@ -23,6 +25,7 @@
 #define IDI_APPICON           101
 #define IDM_DRAWING           1006
 #define IDM_ABOUT             1007
+#define IDM_SETTINGS          1008
 
 typedef enum {
     MODE_PIN,        // 截图并贴图
@@ -61,18 +64,66 @@ static void DoCapture(CaptureMode mode)
         DeleteObject(origBmp);
 }
 
+/* ── 快捷键管理 ── */
+
+static UINT g_hkMods[HK_COUNT];
+static UINT g_hkVks[HK_COUNT];
+static const UINT g_hkIds[HK_COUNT] = {
+    IDHOT_PIN, IDHOT_PIN_COPY, IDHOT_COPY, IDHOT_DRAWING
+};
+
+static void RegisterAllHotkeys(void)
+{
+    for (int i = 0; i < HK_COUNT; i++) {
+        RegisterHotKey(g_hwndMain, (int)g_hkIds[i],
+                       g_hkMods[i], g_hkVks[i]);
+    }
+}
+
+static void UnregisterAllHotkeys(void)
+{
+    for (int i = 0; i < HK_COUNT; i++)
+        UnregisterHotKey(g_hwndMain, (int)g_hkIds[i]);
+}
+
+static void ReloadHotkeys(void)
+{
+    UnregisterAllHotkeys();
+    LoadHotkeys(g_hkMods, g_hkVks);
+    RegisterAllHotkeys();
+}
+
+/* ── 托盘菜单 ── */
+
 static void ShowTrayMenu(HWND hwnd)
 {
+    // 格式化当前快捷键以显示在菜单中
+    wchar_t hkPin[48], hkPinCopy[48], hkCopy[48], hkDraw[48];
+    FormatHotkey(g_hkMods[0], g_hkVks[0], hkPin, 48);
+    FormatHotkey(g_hkMods[1], g_hkVks[1], hkPinCopy, 48);
+    FormatHotkey(g_hkMods[2], g_hkVks[2], hkCopy, 48);
+    FormatHotkey(g_hkMods[3], g_hkVks[3], hkDraw, 48);
+
+    wchar_t buf[128];
+
     HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN,      L"截图贴图\tCtrl+Shift+S");
-    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN_COPY, L"截图贴图并复制\tCtrl+Shift+A");
-    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_COPY,     L"截图复制\tCtrl+Shift+D");
+
+    wsprintfW(buf, L"截图贴图\t%s", hkPin);
+    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN, buf);
+    wsprintfW(buf, L"截图贴图并复制\t%s", hkPinCopy);
+    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_PIN_COPY, buf);
+    wsprintfW(buf, L"截图复制\t%s", hkCopy);
+    AppendMenuW(menu, MF_STRING, IDM_CAPTURE_COPY, buf);
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(menu, MF_STRING, IDM_DRAWING,         L"屏幕画板\tCtrl+Shift+B");
+    wsprintfW(buf, L"屏幕画板\t%s", hkDraw);
+    AppendMenuW(menu, MF_STRING, IDM_DRAWING, buf);
 
     UINT check = IsAutoRunEnabled() ? MF_CHECKED : MF_UNCHECKED;
     AppendMenuW(menu, MF_STRING | check, IDM_AUTORUN, L"开机自启");
-    AppendMenuW(menu, MF_STRING, IDM_ABOUT,           L"关于");
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(menu, MF_STRING, IDM_SETTINGS, L"设置");
+    AppendMenuW(menu, MF_STRING, IDM_ABOUT,    L"关于");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(menu, MF_STRING, IDM_EXIT, L"退出");
@@ -109,6 +160,10 @@ LRESULT CALLBACK MainProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 case IDM_CAPTURE_COPY:     DoCapture(MODE_COPY);     break;
                 case IDM_DRAWING:          RunDrawingMode(g_hInst); break;
                 case IDM_ABOUT:            ShowAboutDialog(g_hInst); break;
+                case IDM_SETTINGS:
+                    if (ShowSettingsDialog(g_hInst))
+                        ReloadHotkeys();
+                    break;
                 case IDM_AUTORUN:
                     SetAutoRun(!IsAutoRunEnabled());
                     break;
@@ -144,6 +199,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     RegisterImageClass(hInst);
     RegisterDrawingClass(hInst);
     RegisterAboutClass(hInst);
+    RegisterSettingsClass(hInst);
 
     WNDCLASSW wc = {0};
     wc.hInstance = hInst;
@@ -165,10 +221,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
     lstrcpyW(g_nid.szTip, L"Snipshot");
     Shell_NotifyIconW(NIM_ADD, &g_nid);
 
-    RegisterHotKey(g_hwndMain, IDHOT_PIN,      MOD_CONTROL | MOD_SHIFT, 'S');
-    RegisterHotKey(g_hwndMain, IDHOT_PIN_COPY, MOD_CONTROL | MOD_SHIFT, 'A');
-    RegisterHotKey(g_hwndMain, IDHOT_COPY,     MOD_CONTROL | MOD_SHIFT, 'D');
-    RegisterHotKey(g_hwndMain, IDHOT_DRAWING,  MOD_CONTROL | MOD_SHIFT, 'B');
+    LoadHotkeys(g_hkMods, g_hkVks);
+    RegisterAllHotkeys();
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
@@ -176,10 +230,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR lpCmd, int nShow)
         DispatchMessageW(&msg);
     }
 
-    UnregisterHotKey(g_hwndMain, IDHOT_PIN);
-    UnregisterHotKey(g_hwndMain, IDHOT_PIN_COPY);
-    UnregisterHotKey(g_hwndMain, IDHOT_COPY);
-    UnregisterHotKey(g_hwndMain, IDHOT_DRAWING);
+    UnregisterAllHotkeys();
     if (hMutex) { ReleaseMutex(hMutex); CloseHandle(hMutex); }
     return 0;
 }
