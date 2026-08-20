@@ -23,6 +23,9 @@ static UINT     g_capMods = 0;
 // 每行快捷键的命中测试矩形
 static RECT g_hkRects[HK_COUNT];
 
+// 防重入：对话框已在显示时聚焦并返回（托盘菜单在模态循环内仍可触发）
+static HWND s_settingsHwnd = NULL;
+
 static BOOL IsModifier(UINT vk)
 {
     return vk == VK_CONTROL || vk == VK_SHIFT ||
@@ -305,6 +308,12 @@ BOOL RegisterSettingsClass(HINSTANCE hInst)
 
 BOOL ShowSettingsDialog(HINSTANCE hInst)
 {
+    // 防重入：已在显示时聚焦并直接返回（视为无改动）
+    if (s_settingsHwnd && IsWindow(s_settingsHwnd)) {
+        SetForegroundWindow(s_settingsHwnd);
+        return FALSE;
+    }
+
     int cx = GetSystemMetrics(SM_CXSCREEN);
     int cy = GetSystemMetrics(SM_CYSCREEN);
     int x = (cx - DIALOG_W) / 2;
@@ -318,6 +327,7 @@ BOOL ShowSettingsDialog(HINSTANCE hInst)
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
         x, y, DIALOG_W, DIALOG_H,
         NULL, NULL, hInst, NULL);
+    s_settingsHwnd = hDlg;
 
     if (!hDlg) return FALSE;
 
@@ -327,5 +337,6 @@ BOOL ShowSettingsDialog(HINSTANCE hInst)
         DispatchMessageW(&msg);
     }
 
+    s_settingsHwnd = NULL;
     return g_changed;
 }

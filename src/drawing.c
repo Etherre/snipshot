@@ -90,10 +90,15 @@ static void DrawDot(int cx, int cy, int r, COLORREF color, BYTE alpha)
             int d2 = dx * dx + dy * dy;
 
             if (d2 <= rr - band) {
-                // 圆心深处：完全不透明
+                // 圆心深处
                 BYTE *px = row + (size_t)x * 4;
-                if (alpha == 255 || alpha >= px[3]) {
-                    px[0] = b8; px[1] = g8; px[2] = r8; px[3] = alpha;
+                if (alpha == 255) {
+                    // 画笔：完全覆盖
+                    px[0] = b8; px[1] = g8; px[2] = r8; px[3] = 255;
+                } else {
+                    // 橡皮擦：无条件擦除核心
+                    // （原门控 alpha >= px[3] 导致橡皮擦擦不掉实心笔迹）
+                    px[3] = 1;
                 }
             } else if (band > 0 && d2 < rr + band + 1) {
                 // 过渡带：根据 d² 平滑插值 alpha
@@ -108,10 +113,8 @@ static void DrawDot(int cx, int cy, int r, COLORREF color, BYTE alpha)
                         px[0] = b8; px[1] = g8; px[2] = r8; px[3] = aa;
                     }
                 } else {
-                    // 橡皮擦 (alpha=1)：硬边擦除，不用柔和过渡
-                    if (aa >= 128) {
-                        px[3] = 1;
-                    }
+                    // 橡皮擦 (alpha=1)：硬边擦除整个笔迹足迹，不留残环
+                    px[3] = 1;
                 }
             }
         }
@@ -125,13 +128,23 @@ static void DrawLine(int x0, int y0, int x1, int y1,
     int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
     int err = dx + dy, e2;
 
+    /* 墨点间隔：相邻点重叠 ≥ r/2，视觉上与逐像素绘制一致；
+     * 大笔刷快速甩动时，每段线段少画约 (r/2-1) 倍的墨点，CPU 开销显著下降 */
+    int step = (r > 2) ? r / 2 : 1;
+    int pending = 0;   /* 首点必画 */
+
     for (;;) {
-        DrawDot(x0, y0, r, color, alpha);
+        if (pending <= 0) {
+            DrawDot(x0, y0, r, color, alpha);
+            pending = step;
+        }
         if (x0 == x1 && y0 == y1) break;
         e2 = 2 * err;
         if (e2 >= dy) { err += dy; x0 += sx; }
         if (e2 <= dx) { err += dx; y0 += sy; }
+        pending--;
     }
+    DrawDot(x0, y0, r, color, alpha);  /* 补画终点，保证线段两端完整 */
 }
 
 static void ClearCanvas(void)
@@ -469,6 +482,7 @@ LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             if (g_draw.hwndToolbar && IsWindow(g_draw.hwndToolbar))
                 DestroyWindow(g_draw.hwndToolbar);
+            g_draw.hwndCanvas = NULL;   // 防止悬垂句柄被重入 guard 误判
             return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -497,6 +511,14 @@ BOOL RegisterDrawingClass(HINSTANCE hInst)
 
 void RunDrawingMode(HINSTANCE hInst)
 {
+    // 防重入：画板已打开时聚焦现有画布并返回。
+    // （此前热键/托盘重入会 memset 掉旧窗口仍在使用的画布状态，导致崩溃）
+    if (g_draw.hwndCanvas && IsWindow(g_draw.hwndCanvas)) {
+        SetForegroundWindow(g_draw.hwndCanvas);
+        SetFocus(g_draw.hwndCanvas);
+        return;
+    }
+
     memset(&g_draw, 0, sizeof(g_draw));
     g_draw.pen_color = PEN_COLOR;
     g_draw.pen_size  = PEN_SIZE;

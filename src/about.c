@@ -27,6 +27,9 @@ static const wchar_t *kGitHub  = L"github.com/Etherre/snipshot";
 
 static RECT g_githubRect;
 
+// 防重入：对话框已在显示时聚焦并返回（托盘菜单在模态循环内仍可触发）
+static HWND s_aboutHwnd = NULL;
+
 static void OpenURL(const wchar_t *url)
 {
     ShellExecuteW(NULL, L"open", url, NULL, NULL, SW_SHOW);
@@ -251,6 +254,12 @@ BOOL RegisterAboutClass(HINSTANCE hInst)
 
 void ShowAboutDialog(HINSTANCE hInst)
 {
+    // 防重入：已在显示时聚焦并直接返回
+    if (s_aboutHwnd && IsWindow(s_aboutHwnd)) {
+        SetForegroundWindow(s_aboutHwnd);
+        return;
+    }
+
     int cx = GetSystemMetrics(SM_CXSCREEN);
     int cy = GetSystemMetrics(SM_CYSCREEN);
     int x = (cx - ABOUT_W) / 2;
@@ -262,6 +271,7 @@ void ShowAboutDialog(HINSTANCE hInst)
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
         x, y, ABOUT_W, ABOUT_H,
         NULL, NULL, hInst, NULL);
+    s_aboutHwnd = hDlg;
 
     if (!hDlg) return;
 
@@ -270,4 +280,6 @@ void ShowAboutDialog(HINSTANCE hInst)
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
+    s_aboutHwnd = NULL;
 }

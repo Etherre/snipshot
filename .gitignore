@@ -6,8 +6,8 @@ obj/
 .cache/
 compile_commands.json
 
-# other
-.claude/
+# test
+tests/run_tests*
 
 # Editor
 .vscode/
